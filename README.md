@@ -29,14 +29,20 @@ If you use Docker instead, prefer the upstream project: [ghcr.io/birdhimself/ast
 ## Quick start (Proxmox LXC)
 
 1. Create an **unprivileged** Debian 12/13 CT (2–4 cores, 4 GB RAM).
-2. Copy this repository into the container (or clone after pushing to GitHub).
+2. Clone this repository inside the container:
+
+   ```bash
+   git clone https://github.com/lexwebb/astroneer-lxc.git
+   cd astroneer-lxc
+   ```
+
 3. Run the provisioning script as root:
 
    ```bash
    sudo ./scripts/provision.sh
    ```
 
-4. Bind-mount your save directory (Proxmox CT config example):
+4. Bind-mount your save directory — see [examples/proxmox-notes.txt](examples/proxmox-notes.txt):
 
    ```
    mp0: /path/on/host/saved,mp=/opt/astroneer/AstroneerServer/Astro/Saved
@@ -51,8 +57,6 @@ If you use Docker instead, prefer the upstream project: [ghcr.io/birdhimself/ast
 6. Open UDP port 7777 on your firewall / Proxmox host.
 
 ### Console access
-
-View live server output:
 
 ```bash
 journalctl -u astroneer -f
@@ -102,7 +106,8 @@ astroneer-lxc/
 ├── scripts/
 │   ├── provision.sh      # One-time install (Wine, Box64, AstroTuxLauncher)
 │   ├── entrypoint.sh     # Start logic (from astroneer-docker)
-│   └── install.sh        # Python venv setup (from astroneer-docker)
+│   ├── install.sh        # Python venv setup (from astroneer-docker)
+│   └── install-box64.sh  # ARM64 Box64 install (from container-base-images)
 ├── systemd/
 │   └── astroneer.service
 └── config/
