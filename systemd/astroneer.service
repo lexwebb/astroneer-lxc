@@ -1,0 +1,20 @@
+[Unit]
+Description=Astroneer Dedicated Server (AstroTuxLauncher + Wine)
+Documentation=https://github.com/birdhimself/astroneer-docker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=astroneer
+Group=astroneer
+EnvironmentFile=-/etc/astroneer/astroneer.env
+WorkingDirectory=/opt/astroneer
+ExecStart=/usr/local/bin/astroneer-entrypoint
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=120
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
