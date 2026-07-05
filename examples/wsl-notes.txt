@@ -1,0 +1,217 @@
+# WSL2 testing notes (Ubuntu 22.04+)
+#
+# Use this to try astroneer-lxc on Windows before deploying to a real LXC host.
+# Same provision.sh and systemd unit as production; differences are paths, sudo,
+# and how clients reach UDP 7777 on Windows.
+
+## Prerequisites
+
+- WSL2 (not WSL1):  wsl --status   →  Default Version: 2
+- Ubuntu 22.04 or newer:  wsl -l -v
+- systemd enabled in the distro (required for the astroneer service)
+
+  /etc/wsl.conf:
+    [boot]
+    systemd=true
+
+  After editing wsl.conf, restart WSL from PowerShell:
+    wsl --shutdown
+    wsl -d Ubuntu
+
+  Verify:  systemctl is-system-running   →  running
+
+- amd64 recommended (arm64 works via Box64 but is slower)
+- ~4 GB RAM allocated to WSL; ~10–20 GB free disk under /opt
+
+## Important: run sudo inside a WSL terminal
+
+Do not run  wsl -d Ubuntu -- sudo ./scripts/provision.sh  from PowerShell,
+Cursor, or other Windows automation — sudo waits for a password with no prompt
+and the command appears hung.
+
+Open Ubuntu from the Start menu, or:  wsl -d Ubuntu
+
+## Quick start
+
+1. Go to the repo (clone inside WSL, or use a Windows drive mount):
+
+     cd /mnt/z/src/astroneer-lxc          # example: Z:\src\astroneer-lxc
+     # or
+     git clone https://github.com/lexwebb/astroneer-lxc.git
+     cd astroneer-lxc
+
+2. Provision (5–15 min; downloads Wine and AstroTuxLauncher):
+
+     sudo bash scripts/provision.sh
+
+   If you see  unable to execute ./scripts/provision.sh: No such file or directory
+   the scripts have Windows (CRLF) line endings. Either use  bash  as above, or:
+
+     sed -i 's/\r$//' scripts/*.sh
+     sudo ./scripts/provision.sh
+
+   Prefer cloning inside WSL (~/) so Git checks out LF line endings; editing on
+   a Windows drive (/mnt/c, /mnt/z) can reintroduce CRLF.
+
+3. Saves directory (pick one):
+
+     # Default — created on first server start under /opt/astroneer
+     # Or symlink a Windows folder (easier to back up from Windows):
+     sudo mkdir -p /opt/astroneer/AstroneerServer/Astro
+     sudo ln -s /mnt/c/Users/YOU/astroneer-saves \
+       /opt/astroneer/AstroneerServer/Astro/Saved
+     sudo chown -h astroneer:astroneer /opt/astroneer/AstroneerServer/Astro/Saved
+
+4. Optional env tweaks:
+
+     sudo nano /etc/astroneer/astroneer.env
+
+5. Enable and start:
+
+     sudo systemctl enable --now astroneer
+     journalctl -u astroneer -f
+
+6. Stop before editing server config the game writes on shutdown:
+
+     sudo systemctl stop astroneer
+     # AstroServerSettings.ini:
+     # /opt/astroneer/AstroneerServer/Astro/Saved/Config/WindowsServer/AstroServerSettings.ini
+
+## Connecting from Windows (Astroneer client)
+
+Astroneer dedicated servers use **UDP** and the client almost always probes your
+**public WAN IP** (the PublicIP in AstroServerSettings.ini), not 127.0.0.1 or the
+WSL internal IP. That is why every local address shows **offline** even though the
+server log says "Server started!".
+
+Your launcher already warned: "Server is completely unreachable" — UDP 7777 is not
+reachable on your public IP from the internet/WSL NAT path.
+
+### Fix path A — mirrored WSL networking (recommended)
+
+WSL2 default NAT does not expose UDP game ports to Windows. Mirrored mode binds
+services on the Windows network stack so UDP 7777 can be reached.
+
+1. Create or edit  %USERPROFILE%\.wslconfig  on Windows:
+
+     [wsl2]
+     networkingMode=mirrored
+
+     [experimental]
+     hostAddressLoopback=true
+
+2. Restart WSL (closes all WSL sessions):
+
+     wsl --shutdown
+
+3. Start Ubuntu, restart the server:
+
+     sudo systemctl restart astroneer
+
+4. Allow UDP 7777 in Windows Firewall (elevated PowerShell):
+
+     New-NetFirewallRule -DisplayName "Astroneer UDP 7777" -Direction Inbound `
+       -Protocol UDP -LocalPort 7777 -Action Allow
+
+5. Forward UDP 7777 on your router to this PC's **Windows LAN IP** (not the WSL IP).
+
+6. In Astroneer: Co-op → Dedicated Servers → Add Dedicated Server:
+
+     <your-public-ip>:7777
+
+   Use your real public IP (must match PublicIP= in AstroServerSettings.ini).
+   Do not use 127.0.0.1 or 172.x.x.x — Astroneer ignores those for reachability.
+
+7. Same-PC caveat: connecting to your own public IP from the same LAN needs
+   **NAT hairpin/loopback** on your router. Many home routers do not support this.
+   If it still shows offline on the same PC, test from a phone on cellular data,
+   or use playit.gg (below).
+
+### Fix path B — disable encryption (Wine + Windows client)
+
+Wine-hosted servers often need encryption off on **both** server and client:
+
+Server (WSL):
+
+  sudo systemctl stop astroneer
+  sudo sed -i 's/DISABLE_ENCRYPTION=false/DISABLE_ENCRYPTION=true/' /etc/astroneer/astroneer.env
+  sudo systemctl start astroneer
+
+Client (Windows): Win+R →
+
+  %localappdata%\Astro\Saved\Config\WindowsNoEditor\Engine.ini
+
+Append:
+
+  [SystemSettings]
+  net.AllowEncryption=False
+
+Restart Astroneer, then add  <public-ip>:7777  again.
+
+### Fix path C — playit.gg (easiest when router/hairpin is the blocker)
+
+Install playit.gg on Windows, tunnel UDP 7777 to localhost:7777 (works best after
+mirrored networking is enabled). Use the playit address in Add Dedicated Server.
+
+### What does NOT work for Astroneer on WSL
+
+- netsh portproxy — **TCP only**, useless for UDP 7777
+- 127.0.0.1:7777 or WSL IP (172.x.x.x:7777) in the client — game still checks WAN IP
+- Ignoring the "completely unreachable" launcher warning — it matches the offline UI
+
+## Networking reference
+
+- Game port: UDP 7777 (verify with  ss -ulnp | grep 7777  in WSL)
+- PublicIP in AstroServerSettings.ini must be bare IP, no :port suffix
+- WSL internal IP changes after  wsl --shutdown  (irrelevant once mirrored mode works)
+
+## Interactive launcher console (optional)
+
+Stop systemd first, then:
+
+  sudo systemctl stop astroneer
+  sudo -u astroneer tmux new-session -s astroneer /usr/local/bin/astroneer-entrypoint
+  sudo -u astroneer tmux attach -t astroneer
+
+## Troubleshooting
+
+- provision.sh “hangs” with no output
+    → Stuck on sudo password. Use a real WSL terminal, not Windows non-interactive sudo.
+
+- unable to execute ./scripts/provision.sh: No such file or directory
+    → CRLF line endings (shebang becomes /bin/bash\r). Run  sudo bash scripts/provision.sh
+      or  sed -i 's/\r$//' scripts/*.sh  then retry.
+
+- systemctl: Failed to connect to bus
+    → Enable systemd in /etc/wsl.conf and  wsl --shutdown .
+
+- Service fails immediately
+    → journalctl -u astroneer -n 100 --no-pager
+    → DEBUG=true in /etc/astroneer/astroneer.env, then restart
+
+- Dedicated server shows **offline** for every IP (127.0.0.1, WSL IP, public IP)
+    → Astroneer probes your **public WAN IP** over UDP, not local addresses.
+    → WSL2 NAT blocks UDP unless mirrored networking is enabled (see above).
+    → Disable encryption on server + client if mirrored mode alone is not enough.
+    → Same-PC + public IP needs router NAT hairpin, or use playit.gg / cellular test.
+
+- Wine / server crashes on start
+    → Ensure enough RAM; close other heavy WSL workloads
+    → WSL is not identical to bare metal / Proxmox — use WSL to validate scripts,
+      then deploy to LXC for long-running production
+
+## Cleanup (remove test install)
+
+From the repo in WSL:
+
+  sudo CONFIRM=yes bash scripts/teardown.sh
+
+Or step through the prompts:
+
+  sudo bash scripts/teardown.sh
+
+Optional on Windows after a WSL smoke test:
+
+  - Remove mirrored networking from %USERPROFILE%\.wslconfig if no longer needed
+  - Remove the "Astroneer UDP 7777" firewall rule
+  - Revert net.AllowEncryption in client Engine.ini if you disabled it for testing

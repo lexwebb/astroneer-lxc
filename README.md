@@ -26,6 +26,28 @@ If you use Docker instead, prefer the upstream project: [ghcr.io/birdhimself/ast
 
 **Proxmox:** Set the CT CPU type to `host` or `x86-64-v3`. The default `kvm64` profile omits instruction sets Wine/Unreal may need.
 
+## WSL2 smoke testing (validated)
+
+You can validate `provision.sh`, the systemd unit, and AstroTuxLauncher on **WSL2 + Ubuntu 22.04** before deploying to Proxmox. Full walkthrough: [examples/wsl-notes.txt](examples/wsl-notes.txt).
+
+| Finding | Detail |
+|---------|--------|
+| Provisioning works | Wine + AstroTuxLauncher install and `systemctl start astroneer` succeed on amd64 WSL2 with systemd enabled. |
+| CRLF on Windows mounts | Scripts on `/mnt/c` or `/mnt/z` may get CRLF line endings — use `sudo bash scripts/provision.sh` or `sed -i 's/\r$//' scripts/*.sh`. `.gitattributes` keeps `*.sh` as LF in git. |
+| UDP networking is the hard part | WSL2 default NAT does not expose UDP 7777 to Windows. Enable **mirrored networking** in `%USERPROFILE%\.wslconfig`, allow UDP 7777 in Windows Firewall, and forward UDP on your router. |
+| Client uses your public IP | Astroneer probes `PublicIP` (WAN), not `127.0.0.1` or the WSL internal IP — every local address can show **offline** until UDP reaches the host. |
+| Encryption | Wine-hosted servers often need `DISABLE_ENCRYPTION=true` plus `net.AllowEncryption=False` in the Windows client `Engine.ini`. |
+| Same-PC join | Connecting to your own public IP from the same LAN needs router **NAT hairpin**; use cellular or [playit.gg](https://playit.gg) if that fails. |
+| Not for production | Use WSL to prove the scripts; run long-term servers on bare metal or Proxmox LXC. |
+
+Teardown after a smoke test:
+
+```bash
+sudo CONFIRM=yes bash scripts/teardown.sh
+```
+
+Windows firewall helper (run as Administrator): [examples/wsl-firewall.ps1](examples/wsl-firewall.ps1).
+
 ## Quick start (Proxmox LXC)
 
 1. Create an **unprivileged** Debian 12/13 CT (2–4 cores, 4 GB RAM).
@@ -42,7 +64,9 @@ If you use Docker instead, prefer the upstream project: [ghcr.io/birdhimself/ast
    sudo ./scripts/provision.sh
    ```
 
-4. Bind-mount your save directory — see [examples/proxmox-notes.txt](examples/proxmox-notes.txt):
+4. Bind-mount your save directory — see [examples/proxmox-notes.txt](examples/proxmox-notes.txt). For WSL2 smoke tests, see [examples/wsl-notes.txt](examples/wsl-notes.txt).
+
+   Proxmox bind mount example:
 
    ```
    mp0: /path/on/host/saved,mp=/opt/astroneer/AstroneerServer/Astro/Saved
@@ -105,9 +129,14 @@ astroneer-lxc/
 ├── LICENSE
 ├── scripts/
 │   ├── provision.sh      # One-time install (Wine, Box64, AstroTuxLauncher)
+│   ├── teardown.sh       # Remove provision.sh install (service, /opt/astroneer, user)
 │   ├── entrypoint.sh     # Start logic (from astroneer-docker)
 │   ├── install.sh        # Python venv setup (from astroneer-docker)
 │   └── install-box64.sh  # ARM64 Box64 install (from container-base-images)
+├── examples/
+│   ├── proxmox-notes.txt
+│   ├── wsl-notes.txt     # WSL2 smoke-test guide
+│   └── wsl-firewall.ps1  # Windows UDP 7777 firewall rule (run as admin)
 ├── systemd/
 │   └── astroneer.service
 └── config/
