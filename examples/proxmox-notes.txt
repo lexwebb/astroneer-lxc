@@ -1,0 +1,11 @@
+# Example Proxmox LXC snippets (adjust VMID and paths)
+# Add to /etc/pve/lxc/<VMID>.conf after creating a Debian CT.
+#
+# Save data bind mount:
+# mp0: /mnt/pve/storage/astroneer/saved,mp=/opt/astroneer/AstroneerServer/Astro/Saved
+#
+# Recommended for Wine on x86_64 hosts — set via Proxmox UI:
+#   Datacenter → Node → CT → Hardware → Processors → Type: host
+#
+# UDP 7777 is forwarded from the host firewall; no special LXC config required
+# for the game port when using a bridged network (net0).
